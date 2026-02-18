@@ -1,0 +1,7 @@
+{
+  "name": "DASHBOARD PETA MONTANA AI",
+  "description": "A sophisticated real-time dashboard for forest monitoring, featuring interactive mapping, health statistics, and AI-driven insights.",
+  "requestFramePermissions": [
+    "geolocation"
+  ]
+}

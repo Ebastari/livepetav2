@@ -1,0 +1,213 @@
+
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0, user-scalable=yes, viewport-fit=cover">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="theme-color" content="#020617">
+  <meta name="format-detection" content="telephone=no">
+  <title>LIVE PETA SUB MONTANA AI PRO</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;600;700;800&display=swap" rel="stylesheet">
+  <style>
+    * {
+      -webkit-tap-highlight-color: transparent;
+      -webkit-touch-callout: none;
+    }
+    
+    body { 
+      font-family: 'Plus Jakarta Sans', sans-serif; 
+      background: #020617;
+      touch-action: pan-x pan-y;
+      -webkit-font-smoothing: antialiased;
+      -moz-osx-font-smoothing: grayscale;
+    }
+    
+    /* Touch-friendly minimum sizes */
+    button, a, input, select {
+      min-height: 44px;
+      min-width: 44px;
+      touch-action: manipulation;
+    }
+    
+    .glass {
+      background: rgba(255, 255, 255, 0.9);
+      backdrop-filter: blur(24px) saturate(180%);
+      border: 1px solid rgba(255, 255, 255, 0.4);
+    }
+    .glass-dark {
+      background: rgba(8, 11, 20, 0.96) !important;
+      backdrop-filter: blur(20px) saturate(150%);
+      border: 1px solid rgba(255, 255, 255, 0.1) !important;
+    }
+    .modern-popup .leaflet-popup-content-wrapper {
+      border-radius: 24px;
+      padding: 0;
+      overflow: hidden;
+      background: rgba(255, 255, 255, 0.98);
+      box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.6);
+    }
+    .modern-popup .leaflet-popup-content { margin: 0; width: 220px !important; }
+    .modern-popup .leaflet-popup-tip-container { display: none; }
+    
+    .custom-scrollbar::-webkit-scrollbar { width: 4px; }
+    .custom-scrollbar::-webkit-scrollbar-thumb { background: #3b82f6; border-radius: 10px; }
+    
+    .pulse-marker {
+      background: currentColor;
+      border-radius: 50%;
+      border: 3px solid white;
+      position: relative;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .pulse-marker::before {
+      content: '';
+      position: absolute;
+      width: 100%;
+      height: 100%;
+      border-radius: 50%;
+      background: inherit;
+      opacity: 0.6;
+      animation: ripple 2s infinite ease-out;
+    }
+
+    @keyframes ripple {
+      0% { transform: scale(1); opacity: 0.6; }
+      100% { transform: scale(4); opacity: 0; }
+    }
+
+    /* Animasi Baru untuk Data Live */
+    .marker-new-ping {
+      animation: marker-glow 2s infinite;
+    }
+
+    @keyframes marker-glow {
+      0% { filter: drop-shadow(0 0 2px white); stroke-width: 2px; }
+      50% { filter: drop-shadow(0 0 12px white); stroke-width: 5px; }
+      100% { filter: drop-shadow(0 0 2px white); stroke-width: 2px; }
+    }
+
+    .last-point-label {
+      position: absolute;
+      top: -45px;
+      background: #ef4444;
+      color: white;
+      font-size: 9px;
+      font-weight: 900;
+      padding: 6px 12px;
+      border-radius: 12px;
+      white-space: nowrap;
+      box-shadow: 0 10px 25px -5px rgba(239, 68, 68, 0.5);
+      animation: bounce-float 2s ease-in-out infinite;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      border: 2px solid white;
+    }
+
+    @keyframes bounce-float {
+      0%, 100% { transform: translateY(0) scale(1); }
+      50% { transform: translateY(-8px) scale(1.05); }
+    }
+
+    .live-feed-item { animation: slideIn 0.5s cubic-bezier(0.175, 0.885, 0.32, 1.275) both; }
+    @keyframes slideIn { from { transform: translateX(50px) scale(0.9); opacity: 0; } to { transform: translateX(0) scale(1); opacity: 1; } }
+    
+    .live-dot {
+      width: 8px;
+      height: 8px;
+      background: #ef4444;
+      border-radius: 50%;
+      animation: pulse-red 2s infinite;
+    }
+
+    @keyframes pulse-red {
+      0% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.7); }
+      70% { box-shadow: 0 0 0 10px rgba(239, 68, 68, 0); }
+      100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0); }
+    }
+    
+    /* Mobile Responsive Styles */
+    @media (max-width: 768px) {
+      .glass {
+        padding: 12px !important;
+        border-radius: 20px !important;
+      }
+      
+      button, a {
+        min-height: 48px;
+        min-width: 48px;
+      }
+      
+      /* Optimize for mobile viewport */
+      #map {
+        height: 100vh;
+        height: 100dvh;
+      }
+    }
+    
+    @media (max-width: 640px) {
+      .modern-popup .leaflet-popup-content { 
+        width: 180px !important; 
+      }
+    }
+    
+    /* Skeleton loading animation */
+    @keyframes skeleton-loading {
+      0% { background-position: -200px 0; }
+      100% { background-position: calc(200px + 100%) 0; }
+    }
+    
+    .skeleton {
+      background: linear-gradient(90deg, #f0f0f0 0px, #f8f8f8 40px, #f0f0f0 80px);
+      background-size: 200px 100%;
+      animation: skeleton-loading 1.5s infinite;
+    }
+    
+    /* Image lazy loading fade-in */
+    @keyframes fadeIn {
+      from { opacity: 0; }
+      to { opacity: 1; }
+    }
+    
+    .lazy-loaded {
+      animation: fadeIn 0.3s ease-in;
+    }
+    
+    /* Pull to refresh indicator */
+    @keyframes rotate {
+      from { transform: rotate(0deg); }
+      to { transform: rotate(360deg); }
+    }
+    
+    .pull-refresh-indicator {
+      animation: rotate 1s linear infinite;
+    }
+  </style>
+
+<link rel="stylesheet" href="/index.css">
+  <script type="importmap">
+  {
+    "imports": {
+      "react": "https://esm.sh/react@^19.2.4",
+      "react-dom/": "https://esm.sh/react-dom@^19.2.4/",
+      "react/": "https://esm.sh/react@^19.2.4/",
+      "@google/genai": "https://esm.sh/@google/genai@^1.40.0",
+      "recharts": "https://esm.sh/recharts@^3.7.0",
+      "leaflet": "https://esm.sh/leaflet@^1.9.4"
+    }
+  }
+  </script>
+  <script type="module" crossorigin src="/assets/index-lzksPKQX.js"></script>
+</head>
+<body>
+  <div id="root"></div>
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+</body>
+</html>
