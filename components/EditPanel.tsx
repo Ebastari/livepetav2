@@ -66,7 +66,7 @@ export const EditPanel: React.FC<EditPanelProps> = ({ isOpen, onClose, onDelete,
         <form onSubmit={handleSubmit} className="p-8 space-y-6">
           <div className="space-y-4">
             <div>
-              <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-2 ml-1">Password (1212)</label>
+              <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-2 ml-1">Password </label>
               <input 
                 type="password" 
                 autoFocus

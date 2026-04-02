@@ -467,8 +467,8 @@ export const Gallery: React.FC<GalleryProps> = ({
                       alt={selectedTree.Tanaman}
                       onError={(e) => {
                         const target = e.target as HTMLImageElement;
-                        target.src = 'https://images.unsplash.com/photo-1542273917363-3b1817f69a2d?w=800';
-                        setErrorMessage('Gagal memuat gambar. Menggunakan gambar default.');
+                        target.style.display = 'none';
+                        setErrorMessage('Gagal memuat gambar.');
                       }}
                     />
                     {/* Image overlay gradient */}
@@ -811,7 +811,7 @@ export const Gallery: React.FC<GalleryProps> = ({
                   style={{ width: '100%', height: '100%', objectFit: 'cover' }}
                   onError={(e) => {
                     const target = e.target as HTMLImageElement;
-                    target.src = 'https://images.unsplash.com/photo-1542273917363-3b1817f69a2d?w=400';
+                    target.style.display = 'none';
                   }}
                 />
                 <div className="absolute inset-0 bg-gradient-to-t from-slate-950/80 via-transparent to-transparent pointer-events-none" />

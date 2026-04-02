@@ -1,30 +1,46 @@
 
-import React, { useState } from 'react';
-import { TreeData, HealthStatus } from '../types';
+import React, { useState, useMemo } from 'react';
+import { TreeData, HealthStatus, getSpeciesColor } from '../types';
 
 interface SidebarProps {
   data: TreeData[];
+  selectedTrees: TreeData[] | null;
+  activeSpeciesFilter: string | null;
+  onToggleSpeciesFilter: (species: string) => void;
   onSearch: (query: string) => void;
-  aiInsight: string;
-  isAiLoading: boolean;
   onToggleBoundary: () => void;
   showBoundary: boolean;
 }
 
-const Sidebar: React.FC<SidebarProps> = ({ data, onSearch, aiInsight, isAiLoading, onToggleBoundary, showBoundary }) => {
+const Sidebar: React.FC<SidebarProps> = ({ data, selectedTrees, activeSpeciesFilter, onToggleSpeciesFilter, onSearch, onToggleBoundary, showBoundary }) => {
   const [isExpanded, setIsExpanded] = useState(false);
-  
-  const stats = {
-    total: data.length,
-    healthy: data.filter(d => d.Kesehatan === HealthStatus.HEALTHY).length
-  };
 
-  // Calculate healthy percentage with safety check
+  // Tampilkan data seleksi jika ada, kalau tidak tampilkan semua
+  const displayData = selectedTrees ?? data;
+  const isFiltered = selectedTrees !== null;
+
+  const stats = useMemo(() => {
+    const total = displayData.length;
+    const healthy = displayData.filter(d => d.Kesehatan === HealthStatus.HEALTHY).length;
+    const sick = displayData.filter(d => d.Kesehatan === HealthStatus.SICK).length;
+    const dead = displayData.filter(d => d.Kesehatan === HealthStatus.DEAD).length;
+
+    const speciesCounts = displayData.reduce((acc, curr) => {
+      const name = curr.Tanaman || 'Lainnya';
+      acc[name] = (acc[name] || 0) + 1;
+      return acc;
+    }, {} as Record<string, number>);
+
+    const sortedSpecies = Object.entries(speciesCounts).sort((a, b) => b[1] - a[1]);
+
+    return { total, healthy, sick, dead, sortedSpecies };
+  }, [displayData]);
+
   const healthyPercent = stats.total > 0 ? Math.round((stats.healthy / stats.total) * 100) : 0;
 
   return (
     <div className="flex flex-col gap-2 w-full pointer-events-none sm:fixed sm:top-28 sm:left-6 sm:bottom-6 sm:w-80 sm:z-[1000] sm:gap-4">
-      {/* Mobile Compact Header - Always visible on mobile */}
+      {/* Mobile Compact Header */}
       <div className="sm:hidden bg-slate-900/95 backdrop-blur-xl p-3 rounded-2xl shadow-2xl pointer-events-auto border border-white/10 flex items-center justify-between">
         <div className="flex items-center gap-3">
           <div className="bg-emerald-500/20 p-2 rounded-xl">
@@ -33,7 +49,7 @@ const Sidebar: React.FC<SidebarProps> = ({ data, onSearch, aiInsight, isAiLoadin
             </svg>
           </div>
           <div>
-            <p className="text-[10px] font-black text-white uppercase">{stats.total} Pohon</p>
+            <p className="text-[10px] font-black text-white uppercase">{stats.total} Pohon · {stats.sortedSpecies.length} Jenis</p>
             <p className="text-[8px] font-bold text-emerald-400">{healthyPercent}% Sehat</p>
           </div>
         </div>
@@ -47,7 +63,7 @@ const Sidebar: React.FC<SidebarProps> = ({ data, onSearch, aiInsight, isAiLoadin
         </button>
       </div>
 
-      {/* Search Bar - Hidden on mobile when collapsed */}
+      {/* Search Bar */}
       <div className={`bg-slate-900/95 backdrop-blur-xl p-4 rounded-3xl sm:rounded-[2rem] shadow-2xl pointer-events-auto border border-white/10 sm:block ${isExpanded ? 'block' : 'hidden'}`}>
         <div className="relative">
           <input
@@ -60,14 +76,13 @@ const Sidebar: React.FC<SidebarProps> = ({ data, onSearch, aiInsight, isAiLoadin
         </div>
       </div>
 
-      {/* Main Stats Panel - High Contrast Dark Glass */}
-      <div className={`bg-slate-900/95 backdrop-blur-2xl p-4 sm:p-6 rounded-3xl sm:rounded-[2.5rem] shadow-2xl pointer-events-auto overflow-y-auto custom-scrollbar border border-white/10 flex-1 space-y-4 sm:space-y-7 pointer-events-auto sm:block ${isExpanded ? 'block max-h-[60vh]' : 'hidden'}`}>
+      {/* Main Stats Panel */}
+      <div className={`bg-slate-900/95 backdrop-blur-2xl p-4 sm:p-6 rounded-3xl sm:rounded-[2.5rem] shadow-2xl pointer-events-auto overflow-y-auto custom-scrollbar border border-white/10 flex-1 space-y-4 sm:space-y-5 sm:block ${isExpanded ? 'block max-h-[60vh]' : 'hidden'}`}>
         
-        {/* Boundary Control */}
-        <div className="hidden sm:flex bg-white/5 text-white p-5 rounded-[1.8rem] items-center justify-between border border-white/10 shadow-lg group hover:bg-white/10 transition-all">
+        {/* Boundary Toggle */}
+        <div className="hidden sm:flex bg-white/5 text-white p-4 rounded-[1.8rem] items-center justify-between border border-white/10 shadow-lg hover:bg-white/10 transition-all">
           <div>
-            <p className="text-[10px] font-black uppercase text-blue-400 tracking-[0.2em]">Master Layer</p>
-            <p className="text-[8px] font-bold text-slate-400 uppercase mt-1">Batas Area Proyek</p>
+            <p className="text-[10px] font-black uppercase text-blue-400 tracking-[0.2em]">Batas Area</p>
           </div>
           <button 
             onClick={onToggleBoundary}
@@ -77,45 +92,96 @@ const Sidebar: React.FC<SidebarProps> = ({ data, onSearch, aiInsight, isAiLoadin
           </button>
         </div>
 
-        {/* Population Stats - Desktop only (mobile shown in compact header) */}
-        <div className="hidden sm:block">
-          <span className="text-[9px] font-black text-slate-500 uppercase tracking-[0.3em] block mb-2">Total Populasi Pohon</span>
-          <h2 className="text-5xl font-black text-white tracking-tighter flex items-baseline gap-2 leading-none">
-            {stats.total} 
-            <span className="text-xs text-blue-500 font-black uppercase tracking-widest italic">Pohon</span>
-          </h2>
-          <div className="flex items-center gap-2 mt-3">
-             <div className="h-1.5 flex-1 bg-white/5 rounded-full overflow-hidden">
-                <div 
-                  className="h-full bg-emerald-500 shadow-[0_0_10px_rgba(16,185,129,0.5)]" 
-                  style={{ width: `${stats.total > 0 ? (stats.healthy/stats.total)*100 : 0}%` }}
-                />
-             </div>
-             <span className="text-[9px] font-black text-emerald-500 uppercase">{healthyPercent}% Sehat</span>
+        {/* Ringkasan Populasi */}
+        <div>
+          {isFiltered && (
+            <div className="bg-blue-500/10 border border-blue-500/20 rounded-2xl px-3 py-2 mb-3 flex items-center gap-2">
+              <svg className="w-3.5 h-3.5 text-blue-400 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 20l-5.447-2.724A1 1 0 013 16.382V5.618a1 1 0 011.447-.894L9 7m0 13l6-3m-6 3V7m6 10l5.447 2.724A1 1 0 0021 18.382V7.618a1 1 0 00-.553-.894L15 4m0 13V4m0 0L9 7" /></svg>
+              <span className="text-[9px] font-black text-blue-400 uppercase tracking-wider">Area Terseleksi</span>
+            </div>
+          )}
+          <div className="flex items-baseline gap-2 mb-1">
+            <h2 className="text-4xl font-black text-white tracking-tighter leading-none">{stats.total.toLocaleString()}</h2>
+            <span className="text-[10px] text-blue-500 font-black uppercase tracking-widest">Pohon</span>
           </div>
-        </div>
-
-        {/* AI Diagnostics Box */}
-        <div className="bg-emerald-600/10 border border-emerald-500/20 p-4 sm:p-6 rounded-[2rem] shadow-inner">
-          <div className="flex items-center gap-3 mb-2 sm:mb-3">
-            <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse shadow-[0_0_8px_rgba(16,185,129,1)]" />
-            <span className="text-[10px] font-black text-emerald-400 uppercase tracking-widest">AI Diagnostics</span>
-          </div>
-          <p className="text-[10px] sm:text-[11px] font-semibold text-slate-300 leading-relaxed italic opacity-90">
-            {isAiLoading ? "Menganalisis pola spasial..." : aiInsight || "Hubungkan satelit untuk insight terbaru."}
+          <p className="text-[10px] font-bold text-slate-400">
+            {stats.sortedSpecies.length} jenis tanaman
           </p>
+          {/* Health Bar */}
+          <div className="flex items-center gap-2 mt-3">
+            <div className="h-2 flex-1 bg-white/5 rounded-full overflow-hidden flex">
+              {stats.total > 0 && (
+                <>
+                  <div className="h-full bg-emerald-500" style={{ width: `${(stats.healthy/stats.total)*100}%` }} />
+                  <div className="h-full bg-amber-500" style={{ width: `${(stats.sick/stats.total)*100}%` }} />
+                  <div className="h-full bg-red-500" style={{ width: `${(stats.dead/stats.total)*100}%` }} />
+                </>
+              )}
+            </div>
+          </div>
+          <div className="flex gap-3 mt-2">
+            <span className="text-[8px] font-black text-emerald-400 uppercase flex items-center gap-1">
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 inline-block" /> {stats.healthy} Sehat
+            </span>
+            <span className="text-[8px] font-black text-amber-400 uppercase flex items-center gap-1">
+              <span className="w-1.5 h-1.5 rounded-full bg-amber-500 inline-block" /> {stats.sick} Merana
+            </span>
+            <span className="text-[8px] font-black text-red-400 uppercase flex items-center gap-1">
+              <span className="w-1.5 h-1.5 rounded-full bg-red-500 inline-block" /> {stats.dead} Mati
+            </span>
+          </div>
         </div>
 
-        {/* Status Indicator */}
-        <div className="pt-3 sm:pt-4 space-y-2 sm:space-y-3 border-t border-white/5">
-           <div className="flex justify-between items-center text-[8px] sm:text-[9px] font-black uppercase tracking-widest">
-              <span className="text-slate-500">Update Terakhir</span>
-              <span className="text-white">Hari Ini, 15:40</span>
-           </div>
-           <div className="flex justify-between items-center text-[8px] sm:text-[9px] font-black uppercase tracking-widest">
-              <span className="text-slate-500">Akurasi GPS</span>
-              <span className="text-blue-400"> 2.5 Meter</span>
-           </div>
+        {/* Legenda Jenis Pohon — clickable */}
+        <div>
+          <div className="flex items-center justify-between mb-3">
+            <h4 className="text-[9px] font-black text-slate-500 uppercase tracking-[0.2em] flex items-center gap-2">
+              <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A1.994 1.994 0 013 12V7a4 4 0 014-4z" /></svg>
+              Jenis Pohon
+            </h4>
+            {activeSpeciesFilter && (
+              <button 
+                onClick={() => onToggleSpeciesFilter(activeSpeciesFilter)}
+                className="text-[8px] font-black text-red-400 uppercase tracking-tight hover:text-red-300 transition-colors"
+              >
+                Reset
+              </button>
+            )}
+          </div>
+          
+          <div className="space-y-1 max-h-[35vh] overflow-y-auto pr-1 custom-scrollbar">
+            {stats.sortedSpecies.map(([name, count]) => {
+              const isActive = activeSpeciesFilter === name;
+              const isAnyActive = activeSpeciesFilter !== null;
+              const pct = stats.total > 0 ? ((count / stats.total) * 100).toFixed(1) : '0';
+              
+              return (
+                <button 
+                  key={name} 
+                  onClick={() => onToggleSpeciesFilter(name)}
+                  className={`flex items-center justify-between w-full px-3 py-2 rounded-xl transition-all duration-200 ${isActive ? 'bg-white/10 ring-1 ring-white/20' : 'hover:bg-white/5'} ${isAnyActive && !isActive ? 'opacity-30' : 'opacity-100'}`}
+                >
+                  <div className="flex items-center gap-2.5">
+                    <div 
+                      className="w-3 h-3 rounded-full shadow-lg border-2 border-white/30 shrink-0" 
+                      style={{ backgroundColor: getSpeciesColor(name) }}
+                    />
+                    <span className={`text-[10px] font-black uppercase tracking-tight ${isActive ? 'text-blue-400' : 'text-slate-300'}`}>
+                      {name}
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className={`text-[8px] font-bold ${isActive ? 'text-slate-300' : 'text-slate-600'}`}>{pct}%</span>
+                    <span className={`text-[10px] font-black tabular-nums ${isActive ? 'text-white' : 'text-slate-500'}`}>
+                      {count.toLocaleString()}
+                    </span>
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+          
+          <p className="text-[7px] font-black text-slate-600 uppercase tracking-[0.3em] text-center mt-3">Klik jenis untuk filter peta</p>
         </div>
       </div>
     </div>

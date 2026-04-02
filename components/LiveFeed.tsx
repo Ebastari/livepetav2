@@ -67,7 +67,7 @@ export const LiveFeed: React.FC<LiveFeedProps> = ({ data, onSelectItem, onClose,
                 alt="thumb"
                 onError={(e) => {
                   const target = e.target as HTMLImageElement;
-                  target.src = 'https://images.unsplash.com/photo-1542273917363-3b1817f69a2d?w=100';
+                  target.style.display = 'none';
                 }}
               />
               <div className="absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 sm:w-3.5 sm:h-3.5 rounded-full bg-red-500 border-2 border-white shadow-sm flex items-center justify-center">

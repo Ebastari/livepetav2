@@ -40,7 +40,7 @@ export const LastPointNotification: React.FC<LastPointNotificationProps> = ({ tr
               className="w-full h-full object-cover" 
               alt="Seedling"
               onError={(e: any) => {
-                e.target.src = 'https://images.unsplash.com/photo-1542273917363-3b1817f69a2d?w=600';
+                e.target.style.display = 'none';
               }}
             />
             <div className="absolute inset-0 bg-gradient-to-t from-slate-900 via-transparent to-transparent opacity-80" />

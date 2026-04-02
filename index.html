@@ -19,8 +19,14 @@
       -webkit-touch-callout: none;
     }
     
-    body { 
-      font-family: 'Plus Jakarta Sans', sans-serif; 
+    html, body, #root {
+      height: 100%;
+      margin: 0;
+      padding: 0;
+    }
+    
+    body {
+      font-family: 'Plus Jakarta Sans', sans-serif;
       background: #020617;
       touch-action: pan-x pan-y;
       -webkit-font-smoothing: antialiased;
@@ -189,25 +195,20 @@
     .pull-refresh-indicator {
       animation: rotate 1s linear infinite;
     }
-  </style>
-  <script type="importmap">
-  {
-    "imports": {
-      "react": "https://esm.sh/react@^19.2.4",
-      "react-dom/": "https://esm.sh/react-dom@^19.2.4/",
-      "react/": "https://esm.sh/react@^19.2.4/",
-      "@google/genai": "https://esm.sh/@google/genai@^1.40.0",
-      "recharts": "https://esm.sh/recharts@^3.7.0",
-      "leaflet": "https://esm.sh/leaflet@^1.9.4"
+
+    @keyframes spin {
+      from { transform: rotate(0deg); }
+      to { transform: rotate(360deg); }
     }
-  }
-  </script>
-<link rel="stylesheet" href="/index.css">
+
+    @keyframes pulse {
+      0%, 100% { opacity: 0.4; width: 30%; }
+      50% { opacity: 1; width: 80%; }
+    }
+  </style>
 </head>
 <body>
-  <div id="root"></div>
-  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-  <script type="module" src="index.tsx"></script>
+<div id="root"></div>
 <script type="module" src="/index.tsx"></script>
 </body>
 </html>

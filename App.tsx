@@ -4,10 +4,28 @@ import L from 'leaflet';
 import Sidebar from './components/Sidebar';
 import { Gallery } from './components/Gallery';
 import AnalyticsDashboard from './components/AnalyticsDashboard';
+import { SelectionStats } from './components/SelectionStats';
 import { TreeData, HEALTH_COLORS, HealthStatus, getImageUrl } from './types';
 import { getAIInsights } from './services/geminiService';
 
-const APPS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbwOOrMqBcQxlbhtTR_YwlwYsoSNCRB7MerXhgqB7C7ECspezjLnYyIr7BtVBF56wmBUdA/exec';
+const isPointInPolygon = (point: [number, number], vs: [number, number][]) => {
+  const x = point[0], y = point[1];
+  let inside = false;
+  for (let i = 0, j = vs.length - 1; i < vs.length; j = i++) {
+    const xi = vs[i][0], yi = vs[i][1];
+    const xj = vs[j][0], yj = vs[j][1];
+    const intersect = ((yi > y) !== (yj > y)) && (x < (xj - xi) * (y - yi) / (yj - yi) + xi);
+    if (intersect) inside = !inside;
+  }
+  return inside;
+};
+
+const parseCoord = (val: any) => {
+  if (typeof val === 'number') return val;
+  return parseFloat(String(val || '0').replace(',', '.'));
+};
+
+const APPS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbyVh2uBSPOEN81G7TpmrRTVtIsjVOtW7wFYWATD0vroRjLPoKOVNBlRfgyMbkjOoGsofg/exec';
 
 const BOUNDARY_DATA: any = {
   "type": "FeatureCollection",
@@ -29,6 +47,11 @@ const App: React.FC = () => {
   const [showBoundary, setShowBoundary] = useState(true);
   const [aiInsight, setAiInsight] = useState('');
   
+  // Selection Area State
+  const [isDrawingMode, setIsDrawingMode] = useState(false);
+  const [selectionPoints, setSelectionPoints] = useState<L.LatLng[]>([]);
+  const [selectedTrees, setSelectedTrees] = useState<TreeData[] | null>(null);
+
   // Background Deletion Queue State
   const [deleteQueue, setDeleteQueue] = useState<string[]>([]);
   const [initialQueueLength, setInitialQueueLength] = useState(0);
@@ -39,6 +62,8 @@ const App: React.FC = () => {
   const markersLayerRef = useRef<L.LayerGroup | null>(null);
   const pulseLayerRef = useRef<L.LayerGroup | null>(null);
   const boundaryLayerRef = useRef<L.GeoJSON | null>(null);
+  const selectionPolyRef = useRef<L.Polygon | null>(null);
+  const selectionMarkersRef = useRef<L.CircleMarker[]>([]);
 
   const latestFive = useMemo(() => [...rawData].slice(-5).reverse(), [rawData]);
 
@@ -187,6 +212,68 @@ const App: React.FC = () => {
     setFilteredData(prev => prev.filter(t => !ids.includes(String(t["No Pohon"]))));
   };
 
+  // Selection drawing - map click handler
+  useEffect(() => {
+    if (!mapRef.current) return;
+    const map = mapRef.current;
+    const onMapClick = (e: L.LeafletMouseEvent) => {
+      if (!isDrawingMode) return;
+      const newPoints = [...selectionPoints, e.latlng];
+      setSelectionPoints(newPoints);
+      const node = L.circleMarker(e.latlng, { radius: 5, fillColor: '#3b82f6', color: 'white', weight: 2, fillOpacity: 1 }).addTo(map);
+      selectionMarkersRef.current.push(node);
+      if (selectionPolyRef.current) {
+        selectionPolyRef.current.setLatLngs(newPoints);
+      } else {
+        selectionPolyRef.current = L.polygon(newPoints, { color: '#3b82f6', fillColor: '#3b82f6', fillOpacity: 0.15, weight: 3, dashArray: '8, 12' }).addTo(map);
+      }
+    };
+    map.on('click', onMapClick);
+    return () => { map.off('click', onMapClick); };
+  }, [isDrawingMode, selectionPoints]);
+
+  const clearSelectionLayers = () => {
+    if (selectionPolyRef.current) { selectionPolyRef.current.remove(); selectionPolyRef.current = null; }
+    selectionMarkersRef.current.forEach(m => m.remove());
+    selectionMarkersRef.current = [];
+  };
+
+  const handleStartDrawing = () => {
+    setIsDrawingMode(true);
+    setSelectionPoints([]);
+    setSelectedTrees(null);
+    clearSelectionLayers();
+  };
+
+  const handleFinishDrawing = () => {
+    if (selectionPoints.length < 3) { alert('Pilih minimal 3 titik di peta!'); return; }
+    setIsDrawingMode(false);
+    const polygonCoords: [number, number][] = selectionPoints.map(p => [p.lat, p.lng]);
+    const results = filteredData.filter(tree => {
+      const lat = parseCoord(tree.X);
+      const lon = parseCoord(tree.Y);
+      if (!lat || !lon || isNaN(lat) || isNaN(lon)) return false;
+      return isPointInPolygon([lat, lon], polygonCoords);
+    });
+    setSelectedTrees(results);
+    clearSelectionLayers();
+  };
+
+  const handleCancelDrawing = () => {
+    setIsDrawingMode(false);
+    setSelectionPoints([]);
+    setSelectedTrees(null);
+    clearSelectionLayers();
+  };
+
+  const handleFocusTree = (t: TreeData) => {
+    const lat = parseCoord(t.X);
+    const lon = parseCoord(t.Y);
+    if (mapRef.current && lat && lon) {
+      mapRef.current.setView([lat, lon], 19);
+    }
+  };
+
   useEffect(() => { initMap(); fetchData(); }, [initMap]);
 
   // Calculate progress for UI
@@ -210,6 +297,16 @@ const App: React.FC = () => {
           </div>
           
           <div className="flex items-center gap-1.5 md:gap-2 flex-shrink-0">
+            <button 
+              onClick={handleStartDrawing}
+              className={`flex items-center gap-1 md:gap-2 px-3 md:px-5 py-2.5 md:py-3.5 rounded-xl md:rounded-2xl shadow-xl transition-all active:scale-95 text-[9px] md:text-[10px] font-black uppercase tracking-wider ${isDrawingMode ? 'bg-blue-500 text-white ring-2 ring-blue-300' : 'bg-blue-600 text-white hover:bg-blue-500'}`}
+              style={{ minHeight: '44px' }}
+            >
+               <span className="hidden sm:inline">Seleksi</span>
+               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 5a1 1 0 011-1h4a1 1 0 011 1v4a1 1 0 01-1 1H5a1 1 0 01-1-1V5zM14 5a1 1 0 011-1h4a1 1 0 011 1v4a1 1 0 01-1 1h-4a1 1 0 01-1-1V5zM4 15a1 1 0 011-1h4a1 1 0 011 1v4a1 1 0 01-1 1H5a1 1 0 01-1-1v-4zM14 15a1 1 0 011-1h4a1 1 0 011 1v4a1 1 0 01-1 1h-4a1 1 0 01-1-1v-4z" />
+               </svg>
+            </button>
             <button 
               onClick={() => setIsDashboardOpen(true)} 
               className="bg-emerald-600 text-white flex items-center gap-1 md:gap-2 px-3 md:px-5 py-2.5 md:py-3.5 rounded-xl md:rounded-2xl shadow-xl hover:bg-emerald-500 transition-all active:scale-95 text-[9px] md:text-[10px] font-black uppercase tracking-wider"
@@ -242,17 +339,19 @@ const App: React.FC = () => {
       </div>
 
       <Sidebar 
-        data={filteredData} 
-        onSearch={(q) => {
-          const f = rawData.filter(d => String(d["No Pohon"]).toLowerCase().includes(q.toLowerCase()) || d.Tanaman.toLowerCase().includes(q.toLowerCase()));
-          setFilteredData(f);
-          renderMarkers(f);
-        }} 
-        aiInsight={aiInsight} 
-        isAiLoading={isAiLoading}
-        onToggleBoundary={() => setShowBoundary(!showBoundary)}
-        showBoundary={showBoundary}
-      />
+  data={filteredData} 
+  onSearch={(q) => {
+    const f = rawData.filter(d => String(d["No Pohon"]).toLowerCase().includes(q.toLowerCase()) || d.Tanaman.toLowerCase().includes(q.toLowerCase()));
+    setFilteredData(f);
+    renderMarkers(f);
+  }} 
+  aiInsight={aiInsight} 
+  isAiLoading={isAiLoading}
+  onToggleBoundary={() => setShowBoundary(!showBoundary)}
+  showBoundary={showBoundary}
+  mapRef={mapRef}
+  markersLayerRef={markersLayerRef}
+/>
       
       {/* Background Processing Progress Notification */}
       {(deleteQueue.length > 0 || showDeletionComplete) && (
@@ -299,6 +398,31 @@ const App: React.FC = () => {
       />
 
       <AnalyticsDashboard isOpen={isDashboardOpen} onClose={() => setIsDashboardOpen(false)} data={filteredData} />
+
+      {/* Selection Drawing Mode Banner */}
+      {isDrawingMode && (
+        <div className="fixed top-24 left-1/2 -translate-x-1/2 z-[2000] flex gap-3 w-[95%] max-w-lg">
+          <div className="glass-dark bg-slate-900/95 backdrop-blur-2xl px-6 py-5 rounded-[2.5rem] border-2 border-blue-500 shadow-2xl flex flex-col sm:flex-row items-center justify-between gap-4 w-full">
+            <div className="flex items-center gap-4">
+              <div className="w-4 h-4 rounded-full bg-blue-500 animate-ping" />
+              <span className="text-[11px] font-black text-white uppercase tracking-widest">Seleksi Area Aktif — Klik peta untuk tambah titik</span>
+            </div>
+            <div className="flex gap-2 w-full sm:w-auto">
+              <button onClick={handleFinishDrawing} className="flex-1 sm:flex-none bg-blue-600 text-white px-6 py-3 rounded-2xl text-[10px] font-black uppercase hover:bg-blue-500 transition-all">Analisis ({selectionPoints.length} titik)</button>
+              <button onClick={handleCancelDrawing} className="flex-1 sm:flex-none bg-white/10 text-white px-6 py-3 rounded-2xl text-[10px] font-black uppercase hover:bg-white/20 transition-all">Batal</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Selection Stats Result Panel */}
+      {selectedTrees && (
+        <SelectionStats 
+          data={selectedTrees} 
+          onClose={() => setSelectedTrees(null)} 
+          onFocusTree={handleFocusTree}
+        />
+      )}
     </div>
   );
 };

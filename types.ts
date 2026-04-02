@@ -57,29 +57,31 @@ export const getSpeciesColor = (name: string) => {
 
 export const getImageUrl = (item: TreeData, size: 'small' | 'large' = 'large') => {
   const source = String(item["Link Drive"] || "").trim();
-  if (!source || source.includes("File tidak ditemukan")) {
-    return 'https://images.unsplash.com/photo-1542273917363-3b1817f69a2d?w=400';
+  if (!source || source.includes("File tidak ditemukan") || source === '-' || source === 'N/A') {
+    return '';
   }
 
-  let fileId = source;
+  let fileId = '';
 
-  // Check if it's a full URL and extract the ID
+  // Extract file ID from various Google Drive URL formats
   if (source.includes('drive.google.com')) {
     const match = source.match(/\/d\/([a-zA-Z0-9_-]+)/) || source.match(/[?&]id=([a-zA-Z0-9_-]+)/);
     if (match) {
       fileId = match[1];
     }
-  } else if (source.startsWith('http')) {
-    // It might be a direct image link, so just return it.
+  } else if (source.includes('lh3.googleusercontent.com')) {
     return source;
+  } else if (source.startsWith('http')) {
+    return source;
+  } else if (/^[a-zA-Z0-9_-]{10,}$/.test(source)) {
+    fileId = source;
   }
 
-  // If we have a file ID, construct the thumbnail URL
   if (fileId) {
-    const width = size === 'small' ? 'w200' : 'w800';
-    return `https://lh3.googleusercontent.com/d/${fileId}=${width}`;
+    const w = size === 'small' ? 'w200' : 'w800';
+    // lh3 URL langsung return 200 image/jpeg, CORS OK, tanpa redirect
+    return `https://lh3.googleusercontent.com/d/${fileId}=${w}`;
   }
 
-  // Fallback for any other case
-  return 'https://images.unsplash.com/photo-1502082553048-f009c37129b9?w=400';
+  return '';
 };

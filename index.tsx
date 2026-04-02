@@ -13,9 +13,10 @@ import { LastPointNotification } from './components/LastPointNotification';
 import { SpeciesLegend } from './components/SpeciesLegend';
 import { SelectionStats } from './components/SelectionStats';
 import { EditPanel } from './components/EditPanel';
+import { saveTrees, loadTrees, isFirstVisit, markVisited } from './utils/treeCache';
 
 // Menggunakan URL terbaru yang Anda berikan
-const APPS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbxOxKo348A23N-6vdRDWskgwP6a_y9NOrri6Jpde8hw-X7ZrvytimOVb0eK0VcaTjhbCg/exec';
+const APPS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbyVh2uBSPOEN81G7TpmrRTVtIsjVOtW7wFYWATD0vroRjLPoKOVNBlRfgyMbkjOoGsofg/exec';
 const REFRESH_INTERVAL = 15000; 
 
 const isPointInPolygon = (point: [number, number], vs: [number, number][]) => {
@@ -35,12 +36,30 @@ const App: React.FC = () => {
   const [filteredData, setFilteredData] = useState<TreeData[]>([]);
   const [activeSpeciesFilter, setActiveSpeciesFilter] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
+  const [loadProgress, setLoadProgress] = useState(0);
+  const [loadStatus, setLoadStatus] = useState('Menghubungkan ke server...');
+  const loadStartRef = useRef(0);
   const [viewMode, setViewMode] = useState<'pc' | 'mobile' | 'unset'>('pc');
   const [syncProgress, setSyncProgress] = useState(0);
   
   const [isDrawingMode, setIsDrawingMode] = useState(false);
   const [selectionPoints, setSelectionPoints] = useState<L.LatLng[]>([]);
   const [selectedTrees, setSelectedTrees] = useState<TreeData[] | null>(null);
+
+  // Progress kontinu berbasis waktu - tidak pernah stuck
+  useEffect(() => {
+    if (!isLoading) return;
+    loadStartRef.current = Date.now();
+    setLoadProgress(0);
+    const timer = setInterval(() => {
+      const elapsed = Date.now() - loadStartRef.current;
+      // Kurva eksponensial: naik cepat di awal, melambat mendekati 92%
+      // ~17% di 1s, ~42% di 3s, ~58% di 5s, ~80% di 10s, ~90% di 20s
+      const progress = 92 * (1 - Math.exp(-elapsed / 5000));
+      setLoadProgress(prev => prev >= 100 ? 100 : Math.max(prev, progress));
+    }, 50);
+    return () => clearInterval(timer);
+  }, [isLoading]);
 
   const [isGalleryOpen, setIsGalleryOpen] = useState(false);
   const [isDashboardOpen, setIsDashboardOpen] = useState(false);
@@ -122,7 +141,7 @@ const App: React.FC = () => {
         marker.bindPopup(`
           <div class="flex flex-col">
             <div class="relative ${viewMode === 'mobile' ? 'h-40' : 'h-32'} w-full popup-image-container">
-              <img src="${getImageUrl(item, 'small')}" class="h-full w-full object-cover" onerror="this.src='https://images.unsplash.com/photo-1542273917363-3b1817f69a2d?w=300'" />
+              <img src="${getImageUrl(item, 'small')}" class="h-full w-full object-cover" onerror="this.style.display='none'" />
               <div class="absolute bottom-2 left-2 px-2 py-0.5 bg-red-600 text-white text-[8px] font-black rounded uppercase shadow-lg">ID: ${item["No Pohon"]}</div>
             </div>
             <div class="p-4">
@@ -150,27 +169,43 @@ const App: React.FC = () => {
   }, [viewMode, activeSpeciesFilter]);
 
   const loadData = async (isSilent = false) => {
-    if (!isSilent) setIsLoading(true);
+    if (!isSilent) {
+      setLoadStatus('Menghubungkan ke server...');
+      setIsLoading(true);
+    }
     try {
-      // Tambahkan timestamp untuk menghindari caching browser yang sering menyebabkan 'Failed to fetch'
+      if (!isSilent) setLoadStatus('Mengambil 18.000+ data pohon dari server...');
+
       const res = await fetch(`${APPS_SCRIPT_URL}?t=${Date.now()}`, {
         method: 'GET',
         mode: 'cors',
-        headers: {
-          'Accept': 'application/json'
-        }
+        headers: { 'Accept': 'application/json' }
       });
 
       if (!res.ok) throw new Error(`Status Server: ${res.status}`);
 
-      const json: TreeData[] = await res.json();
+      if (!isSilent) setLoadStatus('Menerima response server...');
+
+      const raw = await res.json();
+      const json: TreeData[] = Array.isArray(raw) ? raw : (raw.data || []);
+
+      if (!isSilent) setLoadStatus(`Normalisasi ${json.length.toLocaleString()} data pohon...`);
       
-      const processed = json.map(item => ({
-        ...item, 
-        carbon: calculateCarbon(Number(item.Tinggi)),
-        co2e: calculateCarbon(Number(item.Tinggi)) * (44/12),
-        vol: 0
-      }));
+      const processed = json.map(item => {
+        const rawName = String(item.Tanaman || '').trim();
+        const normalizedName = rawName
+          .toLowerCase()
+          .replace(/\b\w/g, c => c.toUpperCase());
+        return {
+          ...item,
+          Tanaman: normalizedName || item.Tanaman,
+          carbon: calculateCarbon(Number(item.Tinggi)),
+          co2e: calculateCarbon(Number(item.Tinggi)) * (44/12),
+          vol: 0
+        };
+      });
+
+      if (!isSilent) setLoadStatus('Merender titik ke peta...');
 
       setData(processed);
       setFilteredData(processed);
@@ -181,65 +216,101 @@ const App: React.FC = () => {
       }
       
       prevDataCount.current = processed.length;
+
+      // Simpan ke IndexedDB & tandai sudah pernah kunjungi
+      saveTrees(processed).then(() => markVisited()).catch(() => {});
+
+      if (!isSilent) {
+        setLoadStatus('Selesai! Menyiapkan peta...');
+        setLoadProgress(100);
+        setTimeout(() => setIsLoading(false), 600);
+      }
     } catch (e) { 
       console.error("Error loading data:", e);
-      if (!isSilent) alert("Gagal memuat data. Pastikan Apps Script di-deploy sebagai 'Anyone'.");
+      if (!isSilent) {
+        setIsLoading(false);
+        alert("Gagal memuat data. Pastikan Apps Script di-deploy sebagai 'Anyone'.");
+      }
     }
-    setIsLoading(false);
+  };
+
+  /** Load awal: dari cache jika bukan kunjungan pertama, atau fetch penuh */
+  const initializeData = async () => {
+    const firstTime = isFirstVisit();
+    
+    if (!firstTime) {
+      try {
+        const cached = await loadTrees();
+        if (cached && cached.length > 0) {
+          setData(cached);
+          setFilteredData(cached);
+          renderMarkers(cached);
+          prevDataCount.current = cached.length;
+          setActiveTreeDetail(cached[cached.length - 1]);
+          // Background refresh dari server
+          loadData(true);
+          return;
+        }
+      } catch { /* cache gagal, lanjut fetch penuh */ }
+    }
+    
+    // Pertama kali atau cache kosong: tampilkan loading penuh
+    loadData(false);
   };
 
   const handleDelete = async (id: string): Promise<boolean> => {
-    try {
-      // Gunakan Content-Type: text/plain untuk menghindari CORS preflight block
-      const response = await fetch(APPS_SCRIPT_URL, {
-        method: 'POST',
-        mode: 'no-cors', // Apps Script tidak mendukung full CORS pada POST, no-cors akan mengirim tapi tidak bisa baca response
-        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-        body: JSON.stringify({ 
-          action: 'delete', 
-          pohonId: id.toString().trim() 
-        })
-      });
+    const idStr = id.toString().trim();
+    
+    // Hapus dari UI langsung (optimistic)
+    setData(prev => { const next = prev.filter(t => String(t["No Pohon"]) !== idStr); renderMarkers(next); return next; });
+    setFilteredData(prev => prev.filter(t => String(t["No Pohon"]) !== idStr));
+    setSelectedTrees(prev => prev ? prev.filter(t => String(t["No Pohon"]) !== idStr) : null);
+    setActiveTreeDetail(null);
 
-      // Karena no-cors, kita anggap sukses jika request terkirim
-      // Beri delay lalu reload data
-      setActiveTreeDetail(null);
-      setTimeout(() => loadData(true), 3000);
+    try {
+      // GET dengan query param — Apps Script CORS bekerja sempurna untuk GET
+      const res = await fetch(`${APPS_SCRIPT_URL}?action=delete&pohonId=${encodeURIComponent(idStr)}&t=${Date.now()}`, {
+        method: 'GET',
+        mode: 'cors'
+      });
+      const result = await res.json();
+      if (result.status !== 'success') {
+        console.warn("Server delete gagal:", result);
+        loadData(true); // Rollback
+        return false;
+      }
+      setTimeout(() => loadData(true), 1500);
       return true;
     } catch (e) {
       console.error("Delete error:", e);
-      alert("Terjadi kesalahan saat menghubungi server.");
+      loadData(true);
       return false;
     }
   };
 
   const handleBulkDelete = async (ids: string[]) => {
+    const idSet = new Set(ids.map(id => id.toString().trim()));
+    
+    // Hapus dari UI langsung
+    setData(prev => { const next = prev.filter(t => !idSet.has(String(t["No Pohon"]))); renderMarkers(next); return next; });
+    setFilteredData(prev => prev.filter(t => !idSet.has(String(t["No Pohon"]))));
+    setSelectedTrees(prev => prev ? prev.filter(t => !idSet.has(String(t["No Pohon"]))) : null);
+
     try {
-      // Hapus semua item secara parallel
-      const deletePromises = ids.map(id => 
-        fetch(APPS_SCRIPT_URL, {
-          method: 'POST',
-          mode: 'no-cors',
-          headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-          body: JSON.stringify({ 
-            action: 'delete', 
-            pohonId: id.toString().trim() 
-          })
-        })
+      const results = await Promise.all(
+        [...idSet].map(id =>
+          fetch(`${APPS_SCRIPT_URL}?action=delete&pohonId=${encodeURIComponent(id)}&t=${Date.now()}`, {
+            method: 'GET',
+            mode: 'cors'
+          }).then(r => r.json()).catch(() => ({ status: 'error' }))
+        )
       );
-      
-      await Promise.all(deletePromises);
-      
-      // Update state lokal untuk menghapus dari UI
-      setData(prev => prev.filter(t => !ids.includes(String(t["No Pohon"]))));
-      setFilteredData(prev => prev.filter(t => !ids.includes(String(t["No Pohon"]))));
-      
-      // Reload data setelah delay
-      setTimeout(() => loadData(true), 3000);
-      
-      alert(`Berhasil menghapus ${ids.length} item`);
+      const successCount = results.filter(r => r.status === 'success').length;
+      setTimeout(() => loadData(true), 1500);
+      alert(`Berhasil menghapus ${successCount}/${idSet.size} item`);
     } catch (e) {
       console.error("Bulk delete error:", e);
+      loadData(true);
       alert("Terjadi kesalahan saat menghapus data.");
     }
   };
@@ -482,7 +553,7 @@ const App: React.FC = () => {
         style: (f) => ({ color: f?.properties?.Status === 'REALISASI' ? '#10b981' : '#f43f5e', weight: 3, fillOpacity: 0.1 })
       }).addTo(map);
       mapRef.current = map;
-      loadData();
+      initializeData();
     }
   }, [viewMode]);
 
@@ -558,6 +629,47 @@ const App: React.FC = () => {
   return (
     <div className={`relative h-screen w-screen bg-slate-950 font-sans overflow-hidden flex flex-col ${viewMode === 'mobile' ? 'mobile-view' : ''}`}>
       <div id="map" className="absolute inset-0 z-0 saturate-[1.2] brightness-[0.85]" />
+
+      {/* Loading Overlay */}
+      {isLoading && (
+        <div className="fixed inset-0 z-[10000] bg-slate-950 flex flex-col items-center justify-center">
+          {/* Logo */}
+          <div className="mb-8">
+            <img src="https://i.ibb.co.com/29Gzw6k/montana-AI.jpg" alt="Montana AI" className="w-20 h-20 rounded-3xl shadow-2xl shadow-blue-500/20 border-2 border-white/10" />
+          </div>
+
+          {/* Welcome Text */}
+          <div className="text-center mb-10 px-6 max-w-md">
+            <h1 className="text-white text-lg font-black uppercase tracking-[0.15em] leading-tight">Selamat Datang</h1>
+            <p className="text-blue-400 text-[11px] font-black uppercase tracking-[0.2em] mt-2">Ekosistem Montana</p>
+            <p className="text-slate-500 text-[9px] font-bold mt-3 leading-relaxed uppercase tracking-wider">
+              Pemantauan Reklamasi Berkelanjutan<br />PT Energi Batubara Lestari
+            </p>
+          </div>
+
+          {/* Circular Progress */}
+          <div className="relative w-28 h-28 mb-6">
+            <svg className="w-full h-full -rotate-90" viewBox="0 0 100 100">
+              <circle cx="50" cy="50" r="42" fill="none" stroke="#1e293b" strokeWidth="6" />
+              <circle cx="50" cy="50" r="42" fill="none" stroke="#3b82f6" strokeWidth="6" strokeLinecap="round"
+                strokeDasharray={`${2 * Math.PI * 42}`}
+                strokeDashoffset={`${2 * Math.PI * 42 * (1 - loadProgress / 100)}`}
+                style={{ transition: 'stroke-dashoffset 0.4s ease' }}
+              />
+            </svg>
+            <div className="absolute inset-0 flex items-center justify-center flex-col">
+              <span className="text-white text-xl font-black tabular-nums">{Math.floor(loadProgress)}</span>
+              <span className="text-[9px] text-blue-400 font-black -mt-0.5">PERSEN</span>
+            </div>
+          </div>
+
+          {/* Status Text */}
+          <div className="text-center">
+            <p className="text-blue-400 text-[10px] font-black uppercase tracking-[0.2em]">Memuat Data Live Peta</p>
+            <p className="text-slate-600 text-[9px] font-bold mt-2 uppercase tracking-widest" style={{ minHeight: '1.2em' }}>{loadStatus}</p>
+          </div>
+        </div>
+      )}
 
       <div className="fixed top-0 left-0 h-1 bg-blue-500 z-[9999] transition-all duration-100 ease-linear shadow-[0_0_15px_rgba(59,130,246,1)]" style={{ width: `${syncProgress}%` }} />
 
@@ -662,22 +774,13 @@ const App: React.FC = () => {
         </div>
       )}
 
-      {selectedTrees && <SelectionStats data={selectedTrees} onClose={() => setSelectedTrees(null)} />}
-
-      <SpeciesLegend 
-        data={data} 
-        isVisible={viewMode === 'pc' && !isDrawingMode} 
-        activeFilter={activeSpeciesFilter}
-        onToggleFilter={(s) => {
-          const newFilter = activeSpeciesFilter === s ? null : s;
-          setActiveSpeciesFilter(newFilter);
-          // Re-render markers with new filter
-          const filtered = newFilter 
-            ? data.filter(t => t.Tanaman === newFilter)
-            : data;
-          renderMarkers(filtered);
-        }}
-      />
+      {selectedTrees && <SelectionStats data={selectedTrees} onClose={() => setSelectedTrees(null)} onBulkDelete={handleBulkDelete} onFocusTree={(tree) => {
+        const lat = parseFloat(String(tree.Y));
+        const lng = parseFloat(String(tree.X));
+        if (!isNaN(lat) && !isNaN(lng) && mapRef.current) {
+          mapRef.current.flyTo([lat, lng], 20, { duration: 0.5 });
+        }
+      }} />}
 
       {activeTreeDetail && !selectedTrees && !isDrawingMode && (
         <LastPointNotification 
@@ -688,16 +791,24 @@ const App: React.FC = () => {
         />
       )}
 
-      {!isDrawingMode && !selectedTrees && (
+      {!isDrawingMode && (
         <Sidebar 
-          data={data} 
+          data={data}
+          selectedTrees={selectedTrees}
+          activeSpeciesFilter={activeSpeciesFilter}
+          onToggleSpeciesFilter={(s) => {
+            const newFilter = activeSpeciesFilter === s ? null : s;
+            setActiveSpeciesFilter(newFilter);
+            const filtered = newFilter 
+              ? data.filter(t => t.Tanaman === newFilter)
+              : data;
+            renderMarkers(filtered);
+          }}
           onSearch={(q) => {
             const f = data.filter(d => String(d["No Pohon"]).toLowerCase().includes(q.toLowerCase()) || d.Tanaman.toLowerCase().includes(q.toLowerCase()));
             setFilteredData(f);
             renderMarkers(f);
           }} 
-          aiInsight={""} 
-          isAiLoading={false}
           onToggleBoundary={() => setShowBoundary(!showBoundary)}
           showBoundary={showBoundary}
         />
